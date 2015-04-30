@@ -54,7 +54,6 @@ listen = forever $ do
       else maybe (return ()) (sendPrivmsg . (++ face)) (matchParen msg')
   where face = "○(￣□￣○)"
 
-matchParen :: String -> Maybe String
 parenList :: String
 parenList = "()[]{}（）［］｛｝⦅⦆〚〛⦃⦄“”‘’‹›«»"
           ++ "「」〈〉《》【】〔〕⦗⦘『』〖〗〘〙"
@@ -67,6 +66,7 @@ parlenMap = M.fromList $ parseList parenList
         parseList (l:r:xs) = (l,r) : parseList xs
         parseList _ = error "unmatched parenList"
 
+matchParen :: String -> Maybe String
 matchParen input = toMaybe $ match input []
   where match [] output = output
         match (x:xs) (y:ys)
