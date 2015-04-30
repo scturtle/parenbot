@@ -22,6 +22,8 @@ executable parenbot
   -- other-extensions:    
   build-depends:       base >=4.7 && <4.9
                      , bytestring
+                     , containers
+                     , mtl
                      , network
                      , text
   -- hs-source-dirs:      

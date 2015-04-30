@@ -1,50 +1,78 @@
 {-# LANGUAGE OverloadedStrings #-}
 import Network
 import System.IO
-import Data.Functor ((<$>))
-import Control.Monad (forever,unless)
+import System.Environment
+import Data.List (isPrefixOf)
 import Control.Exception (bracket)
+import Control.Monad.Reader
+import qualified Data.Map as M
 import qualified Data.Text as T
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as B8
-import qualified Data.Text.IO as TI
 import qualified Data.Text.Encoding as E
 
-channel :: String
-channel = "#haskell-cn"
+data Config = Config { channel :: String , handle :: Handle}
+type Env = ReaderT Config IO
 
 main :: IO ()
-main = bracket connect hClose listen
-  where connect = do
+main = do
+    args <- getArgs
+    let chan = if null args then "#test" else "#" ++ head args
+    bracket (connect chan) (hClose . handle) (runReaderT run)
+  where connect chan = do
           h <- connectTo "irc.freenode.org" (PortNumber 6667)
           hSetBuffering h NoBuffering
-          send h "NICK" "parenbot"
-          send h "USER" "parenbot 0 * :parenbot"
-          send h "JOIN" (T.pack channel)
-          return h
+          return $ Config chan  h
+        run = do
+          chan <- asks channel
+          send "NICK" "parenbot"
+          send "USER" "parenbot 0 * :parenbot"
+          send "JOIN" chan
+          listen
 
-send :: Handle -> T.Text -> T.Text -> IO ()
-send h s t = do
-  let rep = T.concat [s, " ", t]
-  B8.hPutStrLn h $ E.encodeUtf8 rep
-  B8.putStrLn $ E.encodeUtf8 rep
+send :: String -> String -> Env ()
+send cmd s = do
+  h <- asks handle
+  let reply = cmd ++ " " ++ s
+  liftIO . B8.hPutStrLn h . E.encodeUtf8 $ T.pack reply
+  liftIO . B8.hPutStrLn stderr . E.encodeUtf8 $ T.pack reply
 
-listen :: Handle -> IO ()
-listen h = forever $ do
-    msg <- T.init . E.decodeUtf8 <$> B.hGetLine h
-    TI.putStrLn msg
-    if ping msg
-      then pong msg
-      else let s = T.dropWhile (`notElem` ("()（）" :: String))
-                  . T.reverse $ clean msg
-           in  unless (T.null s) $
-                 case T.head s of
-                   '('  -> send' $ replicate (countParen '(' s)  ')'
-                   '（' -> send' $ replicate (countParen '（' s) '）'
-                   _    -> return ()
-  where ping x = "PING :" `T.isPrefixOf` x
-        pong x = send h "PONG" (T.cons ':' $ T.drop 6 x)
-        clean = T.drop 1 . T.dropWhile (/= ':') . T.drop 1
-        face = "○(￣□￣○)"
-        countParen c = T.length . T.takeWhile (== c)
-        send' s = send h "PRIVMSG" (T.pack $ channel ++ s ++ face)
+sendPrivmsg :: String -> Env ()
+sendPrivmsg s = do
+  chan <- asks channel
+  send "PRIVMSG" $ chan ++ " :" ++ s
+
+listen :: Env ()
+listen = forever $ do
+    h <- asks handle
+    rawmsg <-liftIO $ B.hGetLine h
+    let msg = T.unpack . T.init . E.decodeUtf8 $ rawmsg
+        msg' = drop 1 . dropWhile (/= ':') . drop 1 $ msg
+    liftIO $ hPutStrLn stderr msg
+    if "PING :" `isPrefixOf` msg
+      then send "PONG" (':' : drop 6 msg)
+      else maybe (return ()) (sendPrivmsg . (++ face)) (matchParen msg')
+  where face = "○(￣□￣○)"
+
+matchParen :: String -> Maybe String
+parenList :: String
+parenList = "()[]{}（）［］｛｝⦅⦆〚〛⦃⦄“”‘’‹›«»"
+          ++ "「」〈〉《》【】〔〕⦗⦘『』〖〗〘〙"
+          ++ "｢｣⟦⟧⟨⟩⟪⟫⟮⟯⟬⟭⌈⌉⌊⌋⦇⦈⦉⦊❛❜❝❞❨❩❪❫❴❵❬❭❮❯❰❱"
+          ++ "❲❳⏜⏝⎴⎵⏞⏟⏠⏡﹁﹂﹃﹄︹︺︻︼︗︘︿﹀︽︾﹇﹈︷︸"
+
+parlenMap :: M.Map Char Char
+parlenMap = M.fromList $ parseList parenList
+  where parseList [] = []
+        parseList (l:r:xs) = (l,r) : parseList xs
+        parseList _ = error "unmatched parenList"
+
+matchParen input = toMaybe $ match input []
+  where match [] output = output
+        match (x:xs) (y:ys)
+          | x == y = match xs ys
+        match (x:xs) output
+          | x `M.member` parlenMap = match xs $ parlenMap M.! x : output
+          | otherwise = match xs output
+        toMaybe [] = Nothing
+        toMaybe s = Just s
