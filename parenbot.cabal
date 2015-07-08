@@ -2,11 +2,11 @@
 -- documentation, see http://haskell.org/cabal/users-guide/
 
 name:                parenbot
-version:             0.2.0.0
+version:             0.2.1.0
 -- synopsis:            
 -- description:         
 license:             PublicDomain
-license-file:        LICENSE
+license-file:        UNLICENSE
 author:              scturtle
 maintainer:          scturtle@gmail.com
 -- copyright:           

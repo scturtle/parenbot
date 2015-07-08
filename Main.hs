@@ -37,25 +37,27 @@ send cmd s = do
   liftIO . B8.hPutStrLn h . E.encodeUtf8 $ T.pack reply
   liftIO . B8.hPutStrLn stderr . E.encodeUtf8 $ T.pack reply
 
-sendPrivmsg :: String -> Env ()
-sendPrivmsg s = do
-  chan <- asks channel
-  send "PRIVMSG" $ chan ++ " :" ++ s
+sendPrivmsg :: String -> String -> Env ()
+sendPrivmsg to s = send "PRIVMSG" $ to ++ " :" ++ s
 
 listen :: Env ()
 listen = forever $ do
     h <- asks handle
     rawmsg <-liftIO $ B.hGetLine h
     let msg = T.unpack . T.init . E.decodeUtf8 $ rawmsg
-        msg' = drop 1 . dropWhile (/= ':') . drop 1 $ msg
+        sender = takeWhile (/= '!') . drop 1 $ msg
+        receiver = words msg !! 2
+        to = if receiver == "parenbot" then sender else receiver
+        text = drop 1 . dropWhile (/= ':') . drop 1 $ msg
     liftIO $ hPutStrLn stderr msg
     if "PING :" `isPrefixOf` msg
       then send "PONG" (':' : drop 6 msg)
-      else maybe (return ()) (sendPrivmsg . (++ face)) (matchParen msg')
+      else when (head msg == ':' && (words msg !! 1) == "PRIVMSG") $
+             maybe (return ()) (sendPrivmsg to . (++ face)) (matchParen text)
   where face = "○(￣□￣○)"
 
 parenList :: String
-parenList = "()[]{}（）［］｛｝⦅⦆〚〛⦃⦄“”‘’‹›«»"
+parenList = "<>()[]{}（）［］｛｝⦅⦆〚〛⦃⦄“”‘’‹›«»"
           ++ "「」〈〉《》【】〔〕⦗⦘『』〖〗〘〙"
           ++ "｢｣⟦⟧⟨⟩⟪⟫⟮⟯⟬⟭⌈⌉⌊⌋⦇⦈⦉⦊❛❜❝❞❨❩❪❫❴❵❬❭❮❯❰❱"
           ++ "❲❳⏜⏝⎴⎵⏞⏟⏠⏡﹁﹂﹃﹄︹︺︻︼︗︘︿﹀︽︾﹇﹈︷︸"
